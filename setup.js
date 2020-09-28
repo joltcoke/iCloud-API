@@ -24,7 +24,8 @@
         "accountName": account,
         "password": password,
         "rememberMe": true,
-        "trustTokens": []
+        "trustTokens": [],
+        "pause2FA": true
       };
       request.post("https://idmsa.apple.com/appleauth/auth/signin", {
         headers: {
