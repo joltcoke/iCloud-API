@@ -67,8 +67,8 @@ class iCloud extends EventEmitter {
             };
           },
           timezone: "US/Pacific",
-          clientBuildNumber: "17DProject78",
-          clientMasteringNumber: "17D68",
+          clientBuildNumber: "2018Project35",
+          clientMasteringNumber: "2018B29",
           defaultHeaders: {
             'Referer': 'https://www.icloud.com/',
             'Content-Type': 'text/plain',
@@ -111,8 +111,8 @@ class iCloud extends EventEmitter {
 
       // Now, validate the session with checking for important aspects that show that the session can be used to get data (e.g. there need to be a token, some cookies and account info)
       self.loggedIn = (function() {
-        //console.log(self.auth.cookies.length > 0, !!self.auth.token, self.account != {}, self.username === username);
-        return ((self.auth.cookies.length > 0) && (self.auth.token && self.account != {}) && (username ? (self.username === username) : true));
+        //console.log(self.auth.cookies.length > 0, !!self.auth.token, Object.keys(self.account).length > 0, self.username === username);
+        return ((self.auth.cookies.length > 0) && (self.auth.token && Object.keys(self.account).length > 0) && (username ? (self.username === username) : false));
       })();
 
 
@@ -157,6 +157,13 @@ class iCloud extends EventEmitter {
         self.login(self.username, self.password, function(err) {
           if (err) {
             // If an error ocurs, fire an 'error' event
+
+            // handle non-standard errors
+            if (err.error) {
+                return self.emit("err", err)
+            }
+
+            // otherwise, generic handling
             return self.emit("err", {
               error: "Account is broken or password and username are invalid",
               errorCode: 7
