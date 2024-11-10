@@ -33,6 +33,7 @@
 	"dependencies": {
 		"@foxt/js-srp": "^0.0.3-patch2",
 		"cookie": "^0.3.1",
+		"crypto": "^1.0.1",
 		"prompt": "^1.0.0",
 		"protobufjs": "^6.8.8",
 		"request": "^2.88.0",
