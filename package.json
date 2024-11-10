@@ -31,10 +31,12 @@
 		"test": "echo \"Error: no test specified\" && exit 1"
 	},
 	"dependencies": {
+		"@foxt/js-srp": "^0.0.3-patch2",
 		"cookie": "^0.3.1",
 		"prompt": "^1.0.0",
 		"protobufjs": "^6.8.8",
 		"request": "^2.88.0",
+		"request-promise-native": "^1.0.9",
 		"zlib": "^1.0.5"
 	}
 }

@@ -2,7 +2,9 @@
   const https = require('https');
   const http = require('http');
   const request = require('request');
+  const requestPromise = require('request-promise-native');
   const fs = require('fs');
+  const jsSrp = require('@foxt/js-srp');
 
   var {getHostFromWebservice, cookiesToStr, parseCookieStr, fillCookies, newId, indexOfKey, paramStr, fillDefaults} = require("./resources/helper");
 
@@ -10,7 +12,7 @@
 
     getClientId: newId,
 
-    getAuthToken(account, password, self, callback) {
+    async getAuthToken(account, password, self, callback) {
       // Define login client info object
       var xAppleIFDClientInfo = {
         "U": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/603.3.1 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.1",
@@ -19,62 +21,97 @@
         "V": "1.1",
         "F": ""
       };
-      // Define data object with login info
-      var loginData = {
-        "accountName": account,
-        "password": password,
-        "rememberMe": true,
-        "trustTokens": [],
-        "pause2FA": true
-      };
-      request.post("https://idmsa.apple.com/appleauth/auth/signin", {
-        headers: {
-          'Content-Type': 'application/json',
-          'Referer': 'https://idmsa.apple.com/appleauth/auth/signin',
-          'Accept': 'application/json, text/javascript, */*; q=0.01',
-          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/603.3.1 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.1',
-          'Origin': 'https://idmsa.apple.com',
-          'X-Apple-Widget-Key': self.clientSettings.xAppleWidgetKey,
-          'X-Requested-With': 'XMLHttpRequest',
-          'X-Apple-I-FD-Client-Info': JSON.stringify(xAppleIFDClientInfo)
-        },
-        body: JSON.stringify(loginData)
-      }, function(err, response, body) {
-        // If there are any request errors
-        if (err) return callback(err);
-        var result;
-        try {
-            result = JSON.parse(body);
-        } catch (err) {
-            return callback({
-                error: "Failed to parse token.",
-                code: 0,
-                requestBody: body
-            })
-        }
-        
-        // If the session token exists
-        var sessionToken;
-        if ("x-apple-session-token" in response.headers) {
-          sessionToken = response.headers["x-apple-session-token"];
-        }
-        var sessionID;
-        if ("x-apple-id-session-id" in response.headers) {
-          sessionID = response.headers["x-apple-id-session-id"];
-        }
-        var scnt;
-        if ("scnt" in response.headers) {
-          scnt = response.headers["scnt"];
-        }
-        callback(sessionToken ? null : ({
-          error: "No session token",
-          code: 0
-        }), {
-          token: sessionToken,
-          sessionID: sessionID,
-          scnt: scnt,
-          response: result
+
+      const stringToU8Array = (str) => new TextEncoder().encode(str);
+      const base64ToU8Array = (str) => Uint8Array.from(Buffer.from(str, "base64"));
+      const requestPost = (url, body, simple = true) => {
+        return requestPromise.post(url, {
+          headers: {
+            'Content-Type': 'application/json',
+            'Referer': url,
+            'Accept': 'application/json, text/javascript, */*; q=0.01',
+            'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6) AppleWebKit/603.3.1 (KHTML, like Gecko) Version/10.1.2 Safari/603.3.1',
+            'Origin': 'https://idmsa.apple.com',
+            'X-Apple-Widget-Key': self.clientSettings.xAppleWidgetKey,
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-Apple-I-FD-Client-Info': JSON.stringify(xAppleIFDClientInfo)
+          },
+          body: JSON.stringify(body),
+          resolveWithFullResponse: true,
+          simple: simple
         });
+      }
+      let srp = new jsSrp.Srp(jsSrp.Mode.GSA, jsSrp.Hash.SHA256, 2048);
+      let srpClient = await srp.newClient(stringToU8Array(account), new Uint8Array());
+
+      // Define data object with login info
+      var initData = {
+        a: Buffer.from(jsSrp.util.bytesFromBigint(srpClient.A)).toString("base64"), 
+        accountName: account,
+        protocols: ["s2k", "s2k_fo"]
+      };
+      let response1 = await requestPost("https://idmsa.apple.com/appleauth/auth/signin/init", initData);
+
+      var result;
+      try {
+        result = JSON.parse(response1.body);
+      } catch (err) {
+        return callback({
+          error: "Failed to parse token.",
+          code: 0,
+          requestBody: body
+        })
+      }
+
+      let salt = base64ToU8Array(result.salt);
+      let passHash = new Uint8Array(await jsSrp.util.hash(srp.h, stringToU8Array(password)));
+      if (result.protocol == "s2k_fo") {
+        passHash = stringToU8Array(jsSrp.util.toHex(passHash));
+      }
+
+      let imported = await crypto.subtle.importKey("raw", passHash, { name: "PBKDF2" }, false, ["deriveBits"]);
+      let derived = await crypto.subtle.deriveBits({
+        name: "PBKDF2",
+        hash: { name: "SHA-256" },
+        iterations: result.iteration,
+        salt: salt
+      }, imported, 256);
+
+      srpClient.p = new Uint8Array(derived);
+      await srpClient.generate(salt, base64ToU8Array(result.b));
+
+      var completeData = {
+        accountName: account,
+        m1: Buffer.from(srpClient._M).toString("base64"),
+        m2: Buffer.from(await srpClient.generateM2()).toString("base64"),
+        c: result.c,
+        pause2FA: true,
+        rememberMe: false
+      };
+
+      let response = await requestPost("https://idmsa.apple.com/appleauth/auth/signin/complete", completeData, false);
+
+      // If the session token exists
+      var sessionToken;
+      if ("x-apple-session-token" in response.headers) {
+        sessionToken = response.headers["x-apple-session-token"];
+      }
+      var sessionID;
+      if ("x-apple-id-session-id" in response.headers) {
+        sessionID = response.headers["x-apple-id-session-id"];
+      }
+      var scnt;
+      if ("scnt" in response.headers) {
+        scnt = response.headers["scnt"];
+      }
+      callback(sessionToken ? null : ({
+        error: "No session token",
+        code: 0
+      }), {
+        token: sessionToken,
+        sessionID: sessionID,
+        scnt: scnt,
+        response: result
       });
     },
     accountLogin(self, callback = function() {}, trustToken = null) {
