@@ -70,8 +70,8 @@
         passHash = stringToU8Array(jsSrp.util.toHex(passHash));
       }
 
-      let imported = await crypto.subtle.importKey("raw", passHash, { name: "PBKDF2" }, false, ["deriveBits"]);
-      let derived = await crypto.subtle.deriveBits({
+      let imported = await crypto.webcrypto.subtle.importKey("raw", passHash, { name: "PBKDF2" }, false, ["deriveBits"]);
+      let derived = await crypto.webcrypto.subtle.deriveBits({
         name: "PBKDF2",
         hash: { name: "SHA-256" },
         iterations: result.iteration,
