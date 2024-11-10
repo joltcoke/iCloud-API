@@ -4,6 +4,7 @@
   const request = require('request');
   const requestPromise = require('request-promise-native');
   const fs = require('fs');
+  const crypto = require('crypto');
   const jsSrp = require('@foxt/js-srp');
 
   var {getHostFromWebservice, cookiesToStr, parseCookieStr, fillCookies, newId, indexOfKey, paramStr, fillDefaults} = require("./resources/helper");
